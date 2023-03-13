@@ -1,0 +1,27 @@
+#!/bin/bash
+
+readonly input_file=$(mktemp /tmp/input.XXXXXX)
+
+if [[ "$#" = 3 ]]; then
+    echo "{
+        \"source\": {
+            \"artifactory_root_url_features\": \"https://artifact-public.instana.io/artifactory/features-public\",
+            \"artifactory_root_url_artifacts\": \"https://artifact-public.instana.io/artifactory/shared\",
+            \"download_key\": \"${1}\",
+            \"file_name\": \"${2}\",
+            \"skip_ssl_verification\": true
+        },
+        \"version\": {
+            \"version_string\": \"${3}\"
+        }" > "${input_file}"
+    if [[ -n $SKIP_DOWNLOAD ]]; then
+        echo "        , \"params\": { \"skip_download\": true }" >> "${input_file}"
+    fi
+    echo "}" >> "${input_file}"
+else
+    echo "Wrong number of arguments, you have provided $# arguments, this script needs 3 arguments."
+    echo "Usage: $0 download_key feature_group file_name version_string"
+    exit 1
+fi
+
+docker run -i instana/osgi-feature-resource:latest bash -x /opt/resource/in . < "${input_file}"

@@ -1,0 +1,23 @@
+#!/bin/bash
+
+readonly input_file=$(mktemp /tmp/input.XXXXXX)
+
+if [ "$#" = 4 ]; then
+    echo "{
+        \"source\": {
+            \"artifactory_root_url_features\": \"https://artifact-public.instana.io/artifactory/features-public\",
+            \"artifactory_root_url_artifacts\": \"https://artifact-public.instana.io/artifactory/shared\",
+            \"download_key\": \"${1}\",
+            \"feature_group\": \"${2}\",
+            \"feature_artifact\": \"${3}\",
+            \"feature_name\": \"${4}\",
+            \"skip_ssl_verification\": true
+        }
+    }" > "${input_file}"
+else
+    echo "Wrong number of arguments, you have provided $# arguments, this script needs 4 arguments."
+    echo "Usage: $0 download_key feature_group feature_artifact feature_name"
+    exit 1
+fi
+
+docker run -i instana/osgi-feature-resource:latest bash -x /opt/resource/check < "${input_file}"

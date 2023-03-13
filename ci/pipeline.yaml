@@ -1,0 +1,55 @@
+resources:
+
+  - name: osgi-feature-resource-source
+    type: git
+    icon: github
+    source:
+      uri: https://github.com/instana/osgi-feature-resource.git
+      branch: ((branch))
+
+  - name: osgi-feature-resource-image-icr
+    type: registry-image
+    icon: docker
+    source:
+      repository: icr.io/instana/osgi-feature-resource
+      username: iamapikey
+      password: ((concourse-icr-containers-public.password))
+      tag: latest
+
+jobs:
+
+  - name: self-update
+    max_in_flight: 1
+    plan:
+      - get: osgi-feature-resource-source
+        trigger: true
+      - set_pipeline: self
+        file: osgi-feature-resource-source/ci/pipeline.yaml
+        vars:
+          branch: ((branch))
+
+  - name: build-and-publish
+    plan:
+      - get: osgi-feature-resource-source
+        passed:
+          - self-update
+        trigger: true
+      - task: image-build
+        privileged: true
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: concourse/oci-build-task
+          inputs:
+            - name: osgi-feature-resource-source
+          outputs:
+            - name: image
+          params:
+            CONTEXT: osgi-feature-resource-source
+          run:
+            path: build
+      - put: osgi-feature-resource-image-icr
+        params:
+          image: image/image.tar

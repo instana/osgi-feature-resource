@@ -1,0 +1,49 @@
+---
+
+resource_types:
+
+  - name: osgi-feature-resource
+    type: docker-image
+    source:
+      repository: icr.io/instana/osgi-feature-resource
+      tag: latest
+
+resources:
+
+  - name: instana-java-tracer
+    type: osgi-feature-resource
+    source:
+      download_key: ((instana-download-key))
+      feature_group: com.instana
+      feature_artifact: sensor-feature
+      feature_name: instana-java-trace-sensor
+      file_name: sensor-java-trace-:version.jar
+      skip_ssl_verification: true
+
+jobs:
+
+  - name: some-job
+    plan:
+      - get: instana-java-tracer
+        trigger: true
+        # You can optionally skip downloading the actual artifact if you only want to use the release of a new version
+        # as a trigger.
+        # params:
+        #   skip_download: true
+      - task: do-something
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: busybox
+          inputs:
+          - name: instana-java-tracer
+          run:
+            path: sh
+            args:
+            - -cx
+            - |
+              ls -l instana-java-tracer
+              cat instana-java-tracer/version
+              cat instana-java-tracer/metadata.json

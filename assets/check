@@ -1,0 +1,89 @@
+#!/bin/bash
+
+set -euo pipefail
+
+exec 3>&1 # make stdout available as fd 3 for the result
+exec 1>&2 # redirect all output to stderr for logging
+
+payload=$(mktemp "input.XXXXXX")
+
+cat > "${payload}" <&0
+
+artifactory_root_url_features=$(jq -r '.source.artifactory_root_url_features // "https://artifact-public.instana.io/artifactory/features-public"' < "${payload}")
+username=$(jq -r '.source.username // "_"' < "${payload}")
+download_key=$(jq -r '.source.download_key // ""' < "${payload}")
+feature_group=$(jq -r '.source.feature_group // "com.instana"' < "${payload}")
+feature_artifact=$(jq -r '.source.feature_artifact // "sensor-feature"' < "${payload}")
+feature_name=$(jq -r '.source.feature_name // ""' < "${payload}")
+skip_ssl_verification=$(jq -r '.source.skip_ssl_verification // ""' < "${payload}")
+debug=$(jq -r '.source.debug // ""' < "${payload}")
+
+if [ -n "${debug}" ]; then
+  echo "enabling DEBUG"
+  set -x
+fi
+
+if [ -z "${artifactory_root_url_features}" ]; then
+  echo "invalid payload (missing artifactory_root_url_features)"
+  exit 1
+fi
+
+if [ -z "${username}" ]; then
+  echo "invalid payload (missing username)"
+  exit 1
+fi
+
+if [ -z "${download_key}" ]; then
+  echo "invalid payload (missing download_key)"
+  exit 1
+fi
+
+if [ -z "${feature_group}" ]; then
+  echo "invalid payload (missing feature_group)"
+  exit 1
+fi
+
+if [ -z "${feature_artifact}" ]; then
+  echo "invalid payload (missing feature_artifact)"
+  exit 1
+fi
+
+if [ -z "${feature_name}" ]; then
+  echo "invalid payload (missing feature_name)"
+  exit 1
+fi
+
+args_security=
+
+[ -n "$username" ] && args_security="-u $username";
+[ -n "$download_key" ] && args_security="$args_security:$download_key";
+
+[ "${skip_ssl_verification}" = 'true' ] && args_security="$args_security -k";
+
+metadata=$(curl --silent --fail ${args_security} "${artifactory_root_url_features}/${feature_group//.//}/${feature_artifact}/1.0.0-SNAPSHOT/maven-metadata.xml")
+metadata_file=$(mktemp "maven-metadata.XXXXXX")
+cat > "${metadata_file}" <<< "${metadata}"
+
+snapshot_version=$(xsltproc "$(dirname "${BASH_SOURCE[0]}")/xslt/extract-snapshot-version-from-maven-metadata.xslt" "${metadata_file}")
+
+if [ -z $snapshot_version ]; then
+  echo "The feature's maven-metadata.xml file did not contain a snapshot version tag at /metadata/versioning/snapshotVersions/snapshotVersion[./classifier='features' and ./extension='xml']/value."
+  exit 1
+fi
+
+features_xml=$(curl --silent --fail ${args_security} "${artifactory_root_url_features}/${feature_group//.//}/${feature_artifact}/1.0.0-SNAPSHOT/${feature_artifact}-${snapshot_version}-features.xml")
+features_xml_file=$(mktemp "features_xml.XXXXXX")
+cat > "${features_xml_file}" <<< "${features_xml}"
+
+sed -i "s/FEATURE_NAME/${feature_name}/" "$(dirname "${BASH_SOURCE[0]}")/xslt/extract-feature-version-from-features-xml.xslt"
+feature_version=$(xsltproc "$(dirname "${BASH_SOURCE[0]}")/xslt/extract-feature-version-from-features-xml.xslt" "${features_xml_file}")
+
+if [ -z $feature_version ]; then
+  echo "The features.xml file did not contain a version for ${feature_name}."
+  exit 1
+fi
+
+# Remove the leading "mvn:" prefix.
+feature_version=$(sed 's|mvn:||g' <<< ${feature_version})
+
+echo "[{\"version_string\":\"${feature_version}\"}]" >&3
