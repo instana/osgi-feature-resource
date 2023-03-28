@@ -3,7 +3,7 @@
 resource_types:
 
   - name: osgi-feature-resource
-    type: docker-image
+    type: registry-image
     source:
       repository: icr.io/instana/osgi-feature-resource
       tag: latest
